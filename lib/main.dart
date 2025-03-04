@@ -1,129 +1,168 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:indoornav/gps_analyser.dart';
+import 'package:indoornav/imuReader.dart';
+import 'package:indoornav/wifi_analyser.dart';
+import 'package:indoornav/GridLocation.dart';
+import 'package:indoornav/ap_recorder.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:wifi_scan/wifi_scan.dart';
-import 'dart:io';
-import 'dart:math';
-import 'package:path_provider/path_provider.dart';
+import 'package:flutter/foundation.dart';
 
 void main() {
-  runApp(MaterialApp(
-    home: MyApp(),
-  ));
+  runApp(MyApp());
 }
-
-
 
 class MyApp extends StatefulWidget {
   @override
   _MyAppState createState() => _MyAppState();
 }
 
+
+
 class _MyAppState extends State<MyApp> {
-  String locationMessage = "Press the button to get location";
-  Position? gpsPosition;
-  List<WiFiAccessPoint> wifiList = [];
-
+  String locationMessage = "Finding GPS coordinates...";
+  String buttonText = "Start";
   String strongestAP = "No AP found";
-  String ssid = "None";
   int strongestSignal = -100;
-  TextEditingController xController = TextEditingController();
-  TextEditingController yController = TextEditingController();
-  String dataFilePath = "";
+  bool isRecording = false;
+  Timer? timer;
+  TextEditingController wifiController = TextEditingController();
+  TextEditingController gpsController = TextEditingController();
+  Imureader imuReader = Imureader();
+  int delta = 0;
 
-  @override
+@override
   void initState() {
     super.initState();
-    _initializeFilePath();
+    startBackgroundFloorChangeDetection();  // Start the periodic task when the app starts
   }
 
-  Future<void> _initializeFilePath() async {
-    Directory dir = await getApplicationDocumentsDirectory();
+  @override
+  void dispose() {
+    timer?.cancel();
+    super.dispose();
+  }
+
+void _toggleLocationUpdates() {
+  if (isRecording) {
     setState(() {
-      dataFilePath = '${dir.path}/ap_locations.txt';
+      isRecording = false;
+      buttonText = "Start";
     });
-  }
-
-  Future<void> _getCurrentLocation() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      setState(() => locationMessage = "Location services are disabled.");
-      return;
-    }
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        setState(() => locationMessage = "Location permissions are denied.");
-        return;
-      }
-    }
-
-    gpsPosition = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+    timer?.cancel();
+  } else {
     setState(() {
-      locationMessage = "GPS: Lat: ${gpsPosition!.latitude}, Lon: ${gpsPosition!.longitude}GPS Accuracy: ±${gpsPosition!.accuracy.toStringAsFixed(2)}m";
+      isRecording = true;
+      buttonText = "Stop";
     });
 
-    if (Platform.isAndroid) {
-      _scanWifiNetworks();
-    }
-  }
-
-  Future<void> _scanWifiNetworks() async {
-    await WiFiScan.instance.startScan();
-    List<WiFiAccessPoint> results = await WiFiScan.instance.getScannedResults();
-    setState(() {
-      wifiList = results;
-    });
-    _estimatePosition();
-  }
-
-  void _estimatePosition() async {
-    List<Map<String, dynamic>> recordedAPs = await _readLoggedAPs();
-    double weightedX = 0, weightedY = 0, totalWeight = 0;
-    double totalVariance = 0;
-
-    for (var wifi in wifiList) {
-      var recordedAP = recordedAPs.firstWhere(
-          (ap) => ap['bssid'] == wifi.bssid,
-          orElse: () => {});
-
-      if (recordedAP.isNotEmpty) {
-        double distance = estimateDistance(wifi.level);
-        double weight = 1 / (distance + 1e-6);
-        weightedX += recordedAP['x'] * weight;
-        weightedY += recordedAP['y'] * weight;
-        totalWeight += weight;
-        totalVariance += pow(distance, 2);
-      }
-    }
-
-    if (totalWeight > 0) {
-      double estimatedX = weightedX / totalWeight;
-      double estimatedY = weightedY / totalWeight;
-      double accuracy = sqrt(totalVariance / wifiList.length);
+    timer = Timer.periodic(Duration(seconds: 2), (timer) async {
+      String newLocation = await _getCurrentLocation();
       setState(() {
-        locationMessage += "\nEstimated Position: (\$estimatedX, \$estimatedY)\nWiFi Accuracy: ±\${accuracy.toStringAsFixed(2)}m";
+        locationMessage = newLocation; 
       });
+    });
+  }
+}
+
+void startBackgroundFloorChangeDetection() {
+  Timer.periodic(Duration(seconds: 1), (timer) {
+    delta = delta + imuReader.detectFloorChange();  
+  });
+}
+
+Future<String> _getCurrentLocation() async {
+  // Get current GPS position
+  Position? position = await GPSAnalyser.getGPSLocation();
+
+  // Define thresholds
+  double gpsThreshold = (gpsController.text.isEmpty) ? 15.0 : double.tryParse(gpsController.text) ?? 15.0;
+  double wifiThreshold = (wifiController.text.isEmpty) ? -80 : double.tryParse(wifiController.text) ?? -80;
+
+  // If GPS accuracy is good enough, use GPS location
+  if (position != null && position.accuracy < gpsThreshold) {
+    GridLocation gridLocation = await GPSAnalyser.mapGPS(position.latitude, position.longitude);
+    gridLocation.floor = 1 + delta;
+    return "$gridLocation found using GPS";
+  }
+
+  // Otherwise, attempt WiFi-based location
+  GridLocation? gridLocation = await WiFiAnalyser.estimatePosition(wifiThreshold);
+  if(gridLocation != null){
+    gridLocation.floor = 1 + delta;
     }
+  if (gridLocation != null) {
+    return "$gridLocation found using Wifi";
   }
-  double estimateDistance(int rssi) {
-    const double n = 2.0; // Path loss exponent
-    const double txPower = -40; // Approximate transmit power at 1m
-    return pow(10, (txPower - rssi) / (10 * n)).toDouble();
+
+  // If neither GPS nor WiFi works, return a failure message
+  return "None of the methods worked";
+}
+
+
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: Builder(
+        builder: (context) => Scaffold(
+          appBar: AppBar(title: Text('Location Estimation')),
+          body: Column(
+            children: <Widget>[
+              Text(locationMessage),
+              SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: _toggleLocationUpdates,
+                child: Text(buttonText),
+              ),
+              SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: () {
+                  // _logAccessPoint(context);
+                },
+                child: Text("Log Access Point"),
+              ),
+              SizedBox(height: 20),
+              Text("Strongest AP: $strongestAP, Signal: $strongestSignal dBm"),
+              TextField(
+              controller: gpsController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(labelText: "GPS Threshold"),
+            ),TextField(
+              controller: wifiController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(labelText: "Wifi Threshold"),
+            ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
-void _showCoordinateInput() {
-  showDialog(
-    context: context,
-    builder: (BuildContext context) {
-      return AlertDialog(
-        title: Text("Enter AP Coordinates"),
-        content: Column(
+}
+
+class CoordinateInputScreen extends StatelessWidget {
+  final String bssid;
+  final String ssid;
+  final int signal;
+  final TextEditingController xController = TextEditingController();
+  final TextEditingController yController = TextEditingController();
+  final TextEditingController floorController = TextEditingController();
+
+  CoordinateInputScreen({required this.bssid, required this.ssid, required this.signal});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text("Enter AP Coordinates")),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Display SSID and BSSID
-              Text("SSID: $ssid"),
-              Text("BSSID: $strongestAP"),
+            Text("SSID: $ssid"),
+            Text("BSSID: $bssid"),
+            Text("Signal Strength: $signal dBm"),
             TextField(
               controller: xController,
               keyboardType: TextInputType.number,
@@ -134,120 +173,39 @@ void _showCoordinateInput() {
               keyboardType: TextInputType.number,
               decoration: InputDecoration(labelText: "Y Coordinate"),
             ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop(); // Close dialog
-            },
-            child: Text("Cancel"),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop(); // Close dialog
-              _recordGpsLocation(); // Proceed to log GPS data
-            },
-            child: Text("Next"),
-          ),
-        ],
-      );
-    },
-  );
-}
+            TextField(
+              controller: floorController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(labelText: "Floor Num"),
+            ),
+            SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  child: Text("Cancel"),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    APRecorder.recordGpsLocation(
+                      bssid, 
+                      ssid, 
+                      signal, 
+                      double.tryParse(xController.text) ?? 0.0, // ✅ Safe conversion
+                      double.tryParse(yController.text) ?? 0.0, // ✅ Converts Y coordinate
+                      double.tryParse(floorController.text) ?? 1.0   // ✅ Converts Floor to Integer
+                    );
 
-
-Future<void> _logAccessPoint() async {
-  if (!Platform.isAndroid) return;
-  
-  // Start Wi-Fi scanning
-  await WiFiScan.instance.startScan();
-  
-  // Retrieve the scanned results
-  List<WiFiAccessPoint> results = await WiFiScan.instance.getScannedResults();
-
-  // Debug: Print all scanned results to see if SSID is being detected
-  results.forEach((ap) {
-    print("SSID: ${ap.ssid}, BSSID: ${ap.bssid}, Signal: ${ap.level}");
-  });
-
-  // Filter the results to find the specific SSID (e.g., "HAUWEI-B315-185D")
-  results = results.where((ap) => ap.ssid == "HUAWEI-B315-185D").toList();
-
-  // Debug: Log the filtered results
-  if (results.isEmpty) {
-    print("No access points found with the SSID 'HAUWEI-B315-185D'");
-  } else {
-    print("Found ${results.length} access points with the SSID 'HAUWEI-B315-185D'");
-  }
-
-  // If a matching access point is found, proceed with logging
-  if (results.isNotEmpty) {
-    // Sort by signal strength (highest to lowest)
-    results.sort((a, b) => b.level.compareTo(a.level));
-
-    // Store the strongest AP details
-    strongestAP = results.first.bssid;
-    strongestSignal = results.first.level;
-    ssid = results.first.ssid;
-
-    // Show dialog for user input
-    _showCoordinateInput();
-  } else {
-    // Handle the case where no APs were found
-    print("No matching APs found for the specified SSID.");
-  }
-}
-
-Future<void> _recordGpsLocation() async {
-  if (!Platform.isAndroid) return;
-  List<Position> positions = [];
-  for (int i = 0; i < 10; i++) {
-    positions.add(await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high));
-  }
-
-  Position bestPosition = positions.reduce((a, b) => a.accuracy < b.accuracy ? a : b);
-
-  File file = File(dataFilePath);
-  await file.writeAsString(
-    "BSSID: $strongestAP, SSID: $ssid, Signal: $strongestSignal dB, X: ${xController.text}, Y: ${yController.text}, GPS: (${bestPosition.latitude}, ${bestPosition.longitude}), Accuracy: ±${bestPosition.accuracy.toStringAsFixed(2)}m\n",
-    mode: FileMode.append,
-  );
-}
-
-
-  Future<List<Map<String, dynamic>>> _readLoggedAPs() async {
-    File file = File(dataFilePath);
-    if (!file.existsSync()) return [];
-    List<String> lines = await file.readAsLines();
-    return lines.map((line) {
-      var parts = line.split(", ");
-      return {
-        'bssid': parts[0].split(": ")[1],
-        'x': double.parse(parts[2].split(": ")[1]),
-        'y': double.parse(parts[3].split(": ")[1]),
-      };
-    }).toList();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(title: Text('Location Estimation')),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              ElevatedButton(onPressed: _getCurrentLocation, child: Text("Get Location & Estimate Position")),
-              if (Platform.isAndroid) ...[
-                SizedBox(height: 10),
-                ElevatedButton(onPressed: _logAccessPoint, child: Text("Log Access Point")),
+                    Navigator.pop(context);
+                  },
+                  child: Text("Save"),
+                ),
               ],
-              SizedBox(height: 20),
-              Text(locationMessage, textAlign: TextAlign.center),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

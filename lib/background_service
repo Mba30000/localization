@@ -1,0 +1,88 @@
+import 'dart:async';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:flutter_sensors/flutter_sensors.dart';
+import 'dart:math';
+
+class BackgroundService {
+  static const double floorHeight = 3.0; // Average floor height in meters
+  double? _lastAltitude;
+  int _currentFloor = 1; // Starting from floor 1
+
+  void initialize() {
+    FlutterBackgroundService().configure(
+      androidConfiguration: AndroidConfiguration(
+        onStart: onStart,
+        autoStart: true,
+        isInForegroundMode: true,
+      ),
+      iosConfiguration: IOSConfiguration(
+        onStart: onStart,
+        autoStart: true,
+        isInForegroundMode: true,
+      ),
+    );
+  }
+
+  /// Starts the background service
+  void onStart() {
+    Timer.periodic(Duration(seconds: 3), (timer) async {
+      int floorChange = await detectFloorChange();
+      if (floorChange != 0) {
+        print("User is now on floor $_currentFloor");
+      }
+    });
+  }
+
+  /// Detects floor change based on pressure (barometer) readings
+  Future<int> detectFloorChange() async {
+    double? altitude = await _getAltitude();
+    if (altitude == null) return 0; // No valid reading
+
+    if (_lastAltitude == null) {
+      _lastAltitude = altitude;
+      return 0; // First reading, no change
+    }
+
+    double altitudeChange = altitude - _lastAltitude!;
+    _lastAltitude = altitude; // Update for next check
+
+    if (altitudeChange > floorHeight) {
+      _currentFloor++; // Moved UP one floor
+      return 1;
+    }
+    if (altitudeChange < -floorHeight) {
+      _currentFloor--; // Moved DOWN one floor
+      return -1;
+    }
+
+    return 0; // No significant movement
+  }
+
+  /// Reads the current pressure and converts it to altitude
+  Future<double?> _getAltitude() async {
+    bool isAvailable = await SensorManager().isSensorAvailable(Sensors.PRESSURE);
+    if (!isAvailable) return null;
+
+    final completer = Completer<double>();
+    final stream = await SensorManager().sensorUpdates(
+      sensorId: Sensors.PRESSURE,
+      interval: Sensors.SENSOR_DELAY_UI,
+    );
+
+    stream.listen((SensorEvent event) {
+      double pressure = event.data[0]; // Pressure in hPa
+      double altitude = _pressureToAltitude(pressure);
+      completer.complete(altitude);
+    }).onError((error) {
+      completer.completeError(error);
+    });
+
+    return completer.future;
+  }
+
+  /// Converts pressure (hPa) to altitude (meters) using the barometric formula
+  double _pressureToAltitude(double pressure) {
+    const double seaLevelPressure = 1013.25; // Standard pressure at sea level in hPa
+    return 44330 * (1 - pow(pressure / seaLevelPressure, 1 / 5.255));
+  }
+}
