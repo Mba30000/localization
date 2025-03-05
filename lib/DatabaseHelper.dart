@@ -17,41 +17,57 @@ class DatabaseHelper {
     String dbPath = join(appDocDir.path, 'location.db');
 
     // If the database doesn't exist, copy it from assets
-    if (!await File(dbPath).exists()) {
+    // if (!await File(dbPath).exists()) {
       ByteData data = await rootBundle.load('assets/backend/location.db');
       List<int> bytes = data.buffer.asUint8List();
       await File(dbPath).writeAsBytes(bytes, flush: true);
-    }
+    // }
 
     // Open the database (this version uses sqlite3 package)
     _db = sqlite3.open(dbPath); // ✅ Uses full SQLite with R-Tree
     return _db!;
   }
 
-  // Query to get location data with additional metadata
-  static Future<List<Map<String, dynamic>>> queryLocationData() async {
-    final db = await database;
-    try {
-      // Query location and metadata using LEFT JOIN
-      final ResultSet result = db.select('''
-        SELECT l.grid_x, l.grid_y, l.min_lat, l.min_lon, m.swap_needed
-        FROM location_tree l
-        LEFT JOIN location_tree_metadata m
-        ON l.id = m.id
-      ''');
+static Future<List<Map<String, dynamic>>> queryLocationData(int floorLevel) async {
+  final db = await database;
+  try {
+    // Map floor levels to their corresponding column names
+    final Map<int, String> floorColumns = {
+      1: 'm.firstFloor_paths',
+      2: 'm.secondFloor_paths',
+      // Add more floors as needed
+    };
 
-      return result.map((row) => {
-        'grid_x': row['grid_x'],
-        'grid_y': row['grid_y'],
+    // Default to first floor if floorLevel is invalid
+    String floorColumn = floorColumns[floorLevel] ?? 'm.firstFloor_paths';
+
+    final ResultSet result = db.select('''
+      SELECT l.Grid_x, l.Grid_y, l.min_lat, l.min_lon, m.swap_needed
+      FROM location_rtree l
+      LEFT JOIN location_tree_metadata m
+      ON l._rowid_ = m.id
+      WHERE $floorColumn = 1
+    ''');
+
+    return result.map((row) {
+      // Check if swap is needed
+      final bool swap = row['swap_needed'] == 1;
+
+      return {
+        'Grid_x': swap ? row['Grid_y'] : row['Grid_x'], // Swap if needed
+        'Grid_y': swap ? row['Grid_x'] : row['Grid_y'], // Swap if needed
         'min_lat': row['min_lat'],
         'min_lon': row['min_lon'],
-        'swap_needed': row['swap_needed'],
-      }).toList();
-    } catch (e) {
-      print('Error querying location data: $e');
-      return [];
-    }
+      };
+    }).toList();
+  } catch (e) {
+    print('Error querying location data: $e');
+    return [];
   }
+}
+
+
+
 
   // Query for access points based on BSSID (to be used separately if needed)
   static List<Map<String, dynamic>> queryAccessPoint(Database db, String bssid) {

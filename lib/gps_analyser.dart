@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:indoornav/GridLocation.dart';
 import 'package:indoornav/DatabaseHelper.dart';
@@ -5,6 +6,7 @@ import 'dart:math' as math;
 import 'package:sqlite3/sqlite3.dart';
 
 class GPSAnalyser {
+  static int floorLevel = 1;
   static Future<Position?> getGPSLocation() async {
     if (!await Geolocator.isLocationServiceEnabled()) {
       return null;
@@ -30,15 +32,13 @@ static Future<GridLocation> mapGPS(double latitude, double longitude) async {
   }
 
   // Query the location data from the database
-  final List<Map<String, dynamic>> locations = await DatabaseHelper.queryLocationData();
+  final List<Map<String, dynamic>> locations = await DatabaseHelper.queryLocationData(floorLevel);
   if (locations.isEmpty) {
     print("No locations found in the database.");
     throw Exception("No locations found.");
   }
 
   GridLocation nearestGridLocation = GridLocation();
-  double minDistance = double.infinity;
-
   print("Total locations fetched: ${locations.length}");
 
   for (var location in locations) {
@@ -47,12 +47,11 @@ static Future<GridLocation> mapGPS(double latitude, double longitude) async {
 
     double distance = haversine(latitude, longitude, estimatedLat, estimatedLon);
 
-    print("Grid (${location['grid_x']}, ${location['grid_y']}) -> Estimated: ($estimatedLat, $estimatedLon), Distance: $distance km");
+    print("Grid (${location['Grid_x']}, ${location['Grid_y']}) -> Estimated: ($estimatedLat, $estimatedLon), Distance: $distance km");
 
-    if (distance < minDistance) {
-      minDistance = distance;
-      nearestGridLocation = GridLocation(x: location['grid_x'], y: location['grid_y']);
-    }
+
+    nearestGridLocation = GridLocation(x:double.tryParse(location['Grid_x'].toString()) ?? 0.0, y: double.tryParse(location['Grid_y'].toString()) ?? 0.0);
+
   }
 
   print("Nearest grid: ${nearestGridLocation.x}, ${nearestGridLocation.y}");
