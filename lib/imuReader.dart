@@ -1,151 +1,96 @@
+import 'dart:math';
 import 'dart:async';
 import 'package:sensors_plus/sensors_plus.dart';
 
-class Imureader {
-  // StreamSubscription for accelerometer, gyroscope, and magnetometer
+class ImuReader {
+  // StreamSubscription for accelerometer
   late StreamSubscription<AccelerometerEvent> _accelerometerSubscription;
-  late StreamSubscription<GyroscopeEvent> _gyroscopeSubscription;
-  late StreamSubscription<MagnetometerEvent> _magnetometerSubscription;
 
   // Variables to store sensor data
   double ax = 0.0, ay = 0.0, az = 0.0;  // Accelerometer data
-  double gx = 0.0, gy = 0.0, gz = 0.0;  // Gyroscope data
-  double mx = 0.0, my = 0.0, mz = 0.0;  // Magnetometer data
+  double velocity = 0.0;  // Vertical velocity (m/s)
+  double height = 0.0;  // Height (m)
 
-  // Floor detection parameters
-  double lastAz = 0.0;
-  int floorLevel = 0; // Initial floor level
+  // Smoothed and adjusted Z-axis data (az)
+  double smoothedAz = 0.0;  
+  final double alpha = 0.1;  // Low-pass filter constant for smoothing
+  
+  // Gravity constant (m/s^2)
+  final double gravity = 9.81;  // Earth's gravitational acceleration (m/s^2)
+
+  // Threshold for noise rejection
+  final double noiseThreshold = 0.01; // Minimum acceleration change to consider
 
   // Constructor: Initialize subscriptions with empty streams
-  Imureader() {
+  ImuReader() {
     _accelerometerSubscription = Stream<AccelerometerEvent>.empty().listen((_) {});
-    _gyroscopeSubscription = Stream<GyroscopeEvent>.empty().listen((_) {});
-    _magnetometerSubscription = Stream<MagnetometerEvent>.empty().listen((_) {});
+  }
+
+  // Function to calculate tilt angle (in radians) using accelerometer data
+  double calculateTiltAngle() {
+    // Tilt angle (in radians) is calculated using arctan
+    double angle = atan2(ay, sqrt(ax * ax + az * az));
+    return angle;  // Angle in radians
+  }
+
+  // Function to adjust vertical acceleration using tilt compensation
+  double adjustVerticalAcceleration(double rawAz, double tiltAngle) {
+    // Vertical acceleration is adjusted by the cosine of the tilt angle
+    return rawAz * cos(tiltAngle);
+  }
+
+  // Function to detect height change based on accelerometer data
+  void detectHeightChange() {
+    // Subtract gravity from the raw az to get the relative vertical acceleration
+    double adjustedAz = az - gravity;
+    
+    // Apply low-pass filter to smooth the Z-axis (az)
+    smoothedAz = alpha * adjustedAz + (1 - alpha) * smoothedAz;
+
+    // Check if the change in acceleration exceeds the noise threshold
+    if (smoothedAz.abs() < noiseThreshold) {
+      return; // No significant movement, ignore small noise
+    }
+
+    // Integrate acceleration to get velocity
+    velocity += smoothedAz * 1;  // Assume 50 Hz sampling rate (0.02s delta time)
+    
+    // Integrate velocity to get height (displacement)
+    height += velocity * 1;
+
+    // Output the height change for debugging
+    print("Height: $height m");
+
+    // Reset to zero if the height starts decreasing rapidly due to noise
+    if (height < 0) {
+      height = 0;
+      velocity = 0;
+    }
   }
 
   // Function to start reading IMU data
   void startReading() {
-    stopReading(); // Prevent multiple subscriptions
+    stopReading();  // Prevent multiple subscriptions
 
-    _accelerometerSubscription = accelerometerEventStream()
-        .cast<AccelerometerEvent>()
-        .listen((AccelerometerEvent event) {
+    // Subscribe to the accelerometer stream
+    _accelerometerSubscription = accelerometerEvents.listen((AccelerometerEvent event) {
       ax = event.x;
       ay = event.y;
       az = event.z;
-      detectFloorChange();
-      print("Accelerometer: ax: $ax, ay: $ay, az: $az");
-    });
-
-    _gyroscopeSubscription = gyroscopeEventStream()
-        .cast<GyroscopeEvent>()
-        .listen((GyroscopeEvent event) {
-      gx = event.x;
-      gy = event.y;
-      gz = event.z;
-      print("Gyroscope: gx: $gx, gy: $gy, gz: $gz");
-    });
-
-    _magnetometerSubscription = magnetometerEventStream()
-        .cast<MagnetometerEvent>()
-        .listen((MagnetometerEvent event) {
-      mx = event.x;
-      my = event.y;
-      mz = event.z;
-      print("Magnetometer: mx: $mx, my: $my, mz: $mz");
+      detectHeightChange();  // Call detectHeightChange to calculate height change
     });
   }
 
   // Function to stop reading IMU data
   void stopReading() {
     _accelerometerSubscription.cancel();
-    _gyroscopeSubscription.cancel();
-    _magnetometerSubscription.cancel();
   }
 
-  // Function to get the current IMU data
+  // Function to get the current IMU data (including height)
   Map<String, dynamic> getImuData() {
     return {
       'accelerometer': {'x': ax, 'y': ay, 'z': az},
-      'gyroscope': {'x': gx, 'y': gy, 'z': gz},
-      'magnetometer': {'x': mx, 'y': my, 'z': mz},
-      'floor': floorLevel,
+      'height': height,  // Include calculated height in data
     };
   }
-
-  // Accumulating changes for gradual stair climb detection
-  static double accumulatedChangeUp = 0.0; // For gradual upward change
-  static double accumulatedChangeDown = 0.0; // For gradual downward change
-  static DateTime lastChangeTime = DateTime.now();
-
-int detectFloorChange() {
-  double threshold = 0.3; // Base threshold for small changes (suitable for stair climbing)
-  double significantThreshold = 2.0; // Threshold for larger floor transitions
-  double rapidThreshold = 3.0; // Rapid transition threshold (e.g., 2+ floors in 1 second)
-
-  double change = az - lastAz; // Calculate the change in Z-axis acceleration
-  lastAz = az; // Update the last azimuth for the next iteration
-
-  
-
-  DateTime currentTime = DateTime.now();
-  Duration elapsed = currentTime.difference(lastChangeTime);
-
-  // If the elapsed time is within a small window (e.g., 3 seconds), accumulate the change
-  if (elapsed.inSeconds < 3) {
-    if (change.abs() > threshold) {
-      if (change > 0) {
-        accumulatedChangeUp += change; // Accumulate upward change
-      } else {
-        accumulatedChangeDown += change.abs(); // Accumulate downward change (as positive value)
-      }
-    }
-  } else {
-    // Reset the accumulation every few seconds (e.g., after 3 seconds)
-    accumulatedChangeUp = 0.0;
-    accumulatedChangeDown = 0.0;
-  }
-
-  // If accumulated upward change is large enough, increment the floor level
-  if (accumulatedChangeUp > significantThreshold) {
-    floorLevel += 1; // Increment the floor level for the gradual upward movement
-    accumulatedChangeUp = 0.0; // Reset accumulated upward change
-    lastChangeTime = currentTime; // Update the last change time
-    return 1; // Return 1 for upward movement
-  }
-
-  // If accumulated downward change is large enough, decrement the floor level
-  if (accumulatedChangeDown > significantThreshold) {
-    floorLevel -= 1; // Decrement the floor level for the gradual downward movement
-    accumulatedChangeDown = 0.0; // Reset accumulated downward change
-    lastChangeTime = currentTime; // Update the last change time
-    return -1; // Return -1 for downward movement
-  }
-
-  // Rapid floor transition (e.g., 2+ floors up or down)
-  if (change.abs() > rapidThreshold) {
-    if (change > 0) {
-      floorLevel += 2; // Rapid upward transition (likely skipping multiple floors)
-      return 2; // Indicate a rapid floor transition upwards
-    } else {
-      floorLevel -= 2; // Rapid downward transition (likely skipping multiple floors)
-      return -2; // Indicate a rapid floor transition downwards
-    }
-  }
-
-  // Significant floor transition (single floor change)
-  if (change.abs() > significantThreshold) {
-    if (change > 0) {
-      floorLevel += 1; // Moving up a single floor
-      return 1; // Indicate upward movement
-    } else {
-      floorLevel -= 1; // Moving down a single floor
-      return -1; // Indicate downward movement
-    }
-  }
-
-  // No significant change detected (remain on the current floor)
-  return 0; // No floor change detected
-}
-
 }

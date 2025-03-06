@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'package:indoornav/GridLocation.dart';
 import 'package:path/path.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'dart:typed_data';
+import 'dart:math';
 
 class DatabaseHelper {
   static Database? _db;
@@ -68,6 +70,71 @@ static Future<List<Map<String, dynamic>>> queryLocationData(int floorLevel) asyn
 
 
 
+static Future<GridLocation?> queryClosestLocationForFloor(int floorLevel, GridLocation? gridLocation) async {
+  if (gridLocation == null) return null; // Ensure gridLocation is not null
+  
+  final db = await database;
+
+  try {
+    // Map floor levels to their corresponding column names
+    final Map<int, String> floorColumns = {
+      1: 'm.firstFloor_paths',
+      2: 'm.secondFloor_paths',
+      // Extend for additional floors if needed
+    };
+
+    // Get floor column, defaulting to first floor if missing
+    String? floorColumn = floorColumns[floorLevel];
+    if (floorColumn == null) {
+      print("Warning: Floor level $floorLevel not mapped. Defaulting to first floor.");
+      floorColumn = 'm.firstFloor_paths';
+    }
+
+    // Select all locations where the floor column equals 1
+    final ResultSet result = db.select('''
+      SELECT l.Grid_x, l.Grid_y
+      FROM location_rtree l
+      LEFT JOIN location_tree_metadata m ON l._rowid_ = m.id
+      WHERE $floorColumn = 1
+    ''');
+
+    // Convert the result rows to GridLocation objects
+    List<GridLocation> locations = [];
+    for (var row in result) {
+      locations.add(GridLocation(
+        x: (row['Grid_x'] as num).toDouble(),
+        y: (row['Grid_y'] as num).toDouble(),
+        floor: floorLevel, // Fallback to given floor if no floor data in DB
+      ));
+    }
+
+    // If no locations found, return null
+    if (locations.isEmpty) return null;
+
+    // Calculate the closest location based on Euclidean distance
+    GridLocation closestLocation = locations.first;
+    double closestDistance = double.infinity;
+
+    for (var location in locations) {
+      double distance = _calculateEuclideanDistance(gridLocation, location);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestLocation = location;
+      }
+    }
+
+    return closestLocation;
+  } catch (e) {
+    print('Error querying location data: $e');
+    return null;
+  }
+}
+
+static double _calculateEuclideanDistance(GridLocation point1, GridLocation point2) {
+  double dx = point1.x - point2.x;
+  double dy = point1.y - point2.y;
+  return sqrt(dx * dx + dy * dy); // Euclidean distance formula
+}
 
   // Query for access points based on BSSID (to be used separately if needed)
   static List<Map<String, dynamic>> queryAccessPoint(Database db, String bssid) {

@@ -25,6 +25,7 @@ class GPSAnalyser {
 
 // Function to get nearest grid based on GPS coordinates
 static Future<GridLocation> mapGPS(double latitude, double longitude) async {
+  double shortestDistance = 5000;
   Database? db = await DatabaseHelper.database;
   if (db == null) {
     print("Database is not open.");
@@ -46,12 +47,14 @@ static Future<GridLocation> mapGPS(double latitude, double longitude) async {
     double estimatedLon = double.tryParse(location['min_lon'].toString()) ?? 0.0;
 
     double distance = haversine(latitude, longitude, estimatedLat, estimatedLon);
+    if(distance <= shortestDistance){
+      shortestDistance = distance;
+      nearestGridLocation = GridLocation(x:double.tryParse(location['Grid_x'].toString()) ?? 0.0, y: double.tryParse(location['Grid_y'].toString()) ?? 0.0);
+    }
+    // print("Grid (${location['Grid_x']}, ${location['Grid_y']}) -> Estimated: ($estimatedLat, $estimatedLon), Distance: $distance km");
 
-    print("Grid (${location['Grid_x']}, ${location['Grid_y']}) -> Estimated: ($estimatedLat, $estimatedLon), Distance: $distance km");
 
-
-    nearestGridLocation = GridLocation(x:double.tryParse(location['Grid_x'].toString()) ?? 0.0, y: double.tryParse(location['Grid_y'].toString()) ?? 0.0);
-
+    
   }
 
   print("Nearest grid: ${nearestGridLocation.x}, ${nearestGridLocation.y}");

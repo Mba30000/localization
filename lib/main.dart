@@ -7,6 +7,7 @@ import 'package:indoornav/GridLocation.dart';
 import 'package:indoornav/ap_recorder.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/foundation.dart';
+import 'package:indoornav/imuReader.dart';
 
 void main() {
   runApp(MyApp());
@@ -28,13 +29,13 @@ class _MyAppState extends State<MyApp> {
   Timer? timer;
   TextEditingController wifiController = TextEditingController();
   TextEditingController gpsController = TextEditingController();
-  Imureader imuReader = Imureader();
-  int delta = 0;
+  ImuReader imuReader = ImuReader();
+  Map<String, dynamic>? imuData;
 
 @override
   void initState() {
     super.initState();
-    startBackgroundFloorChangeDetection();  // Start the periodic task when the app starts
+    // startBackgroundFloorChangeDetection();  // Start the periodic task when the app starts
   }
 
   @override
@@ -56,7 +57,7 @@ void _toggleLocationUpdates() {
       buttonText = "Stop";
     });
 
-    timer = Timer.periodic(Duration(seconds: 2), (timer) async {
+    timer = Timer.periodic(Duration(seconds: 1), (timer) async {
       String newLocation = await _getCurrentLocation();
       setState(() {
         locationMessage = newLocation; 
@@ -67,7 +68,10 @@ void _toggleLocationUpdates() {
 
 void startBackgroundFloorChangeDetection() {
   Timer.periodic(Duration(seconds: 1), (timer) {
-    delta = delta + imuReader.detectFloorChange();  
+    setState(() {
+      imuReader.startReading();
+      imuData = imuReader.getImuData();  // Track IMU Z-axis data
+    });
   });
 }
 
@@ -82,14 +86,14 @@ Future<String> _getCurrentLocation() async {
   // If GPS accuracy is good enough, use GPS location
   if (position != null && position.accuracy < gpsThreshold) {
     GridLocation gridLocation = await GPSAnalyser.mapGPS(position.latitude, position.longitude);
-    gridLocation.floor = 1 + delta;
+    // gridLocation.floor = 1 + delta;
     return "$gridLocation found using GPS";
   }
 
   // Otherwise, attempt WiFi-based location
-  GridLocation? gridLocation = await WiFiAnalyser.estimatePosition(wifiThreshold);
+  GridLocation? gridLocation = await WiFiBLEPositioning.estimatePosition(wifiThreshold);
   if(gridLocation != null){
-    gridLocation.floor = 1 + delta;
+    // gridLocation.floor = 1 + delta;
     }
   if (gridLocation != null) {
     return "$gridLocation found using Wifi";
@@ -123,7 +127,7 @@ Future<String> _getCurrentLocation() async {
                 child: Text("Log Access Point"),
               ),
               SizedBox(height: 20),
-              Text("Strongest AP: $strongestAP, Signal: $strongestSignal dBm"),
+              Text(imuData.toString()),
               TextField(
               controller: gpsController,
               keyboardType: TextInputType.number,

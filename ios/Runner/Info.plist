@@ -56,6 +56,12 @@
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
     <string>Location access is required for navigation.</string>
 
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>We use Bluetooth to connect to nearby devices.</string>
+
+	<array>
+    	<string>bluetooth-central</string>
+	</array>
     <!-- Enable Background Location Updates -->
     <key>UIBackgroundModes</key>
     <array>
