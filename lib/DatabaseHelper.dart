@@ -30,7 +30,8 @@ class DatabaseHelper {
     return _db!;
   }
 
-static Future<List<Map<String, dynamic>>> queryLocationData(int floorLevel) async {
+static Future<List<Map<String, dynamic>>> queryLocationData(int? floorLevel) async {
+
   final db = await database;
   try {
     // Map floor levels to their corresponding column names
@@ -68,6 +69,25 @@ static Future<List<Map<String, dynamic>>> queryLocationData(int floorLevel) asyn
   }
 }
 
+static Future<int?> getFloorIfChanged(String macAddress) async {
+  final db = await database;
+  final List<Map<String, dynamic>> result = db.select('''
+    SELECT floorChange, floor 
+    FROM access_points 
+    WHERE bssid = ?;
+  ''', [macAddress]);
+
+  if (result.isNotEmpty) {
+    final row = result.first;  // Get the row for the given MAC
+    final int floorChange = row['floorChange'] ?? 0;
+
+    if (floorChange == 1) {
+      return row['floor'];  // Return floor if floorChange is 1
+    }
+  }
+  
+  return -1; // Return null if no change
+}
 
 
 static Future<GridLocation?> queryClosestLocationForFloor(int floorLevel, GridLocation? gridLocation) async {

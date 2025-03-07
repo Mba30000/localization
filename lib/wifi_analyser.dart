@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:wifi_scan/wifi_scan.dart';
 import 'dart:math' as math;
 import 'package:indoornav/GridLocation.dart';
@@ -11,64 +12,95 @@ import 'dart:async';
 class WiFiBLEPositioning {
   static bool isScanning = false; // Flag to manage scan state
   static Future<GridLocation?> estimatePosition(double threshold) async {
-    if (Platform.isIOS) return await _estimateUsingBLE(threshold);
-
-    Map<WiFiAccessPoint, GridLocation> topAPs = {};
-    List<WiFiAccessPoint> results = await WiFiScan.instance.getScannedResults();
-     results = results.where((ap) => ap.ssid == "KAU-INTERNET" && ap.level >= threshold).toList();
-
-    if (results.isNotEmpty) {
-      results.sort((a, b) => b.level.compareTo(a.level));
-    } else {
-      return null;
+    Map<Object, GridLocation>? topAnchors = {};
+    // await FlutterBluePlus.startScan();
+    List<ScanResult> bleResults = await _scanBLE();
+    List<Object> wifiResults = [];
+    if (Platform.isAndroid){
+      wifiResults = await WiFiScan.instance.getScannedResults();
+      wifiResults = wifiResults.where((ap) => (ap as WiFiAccessPoint).ssid == "KAU-INTERNET" && ap.level >= threshold).toList();
     }
+    Map<String, ScanResultCopy> uniqueResults = {}; 
+    List<ScanResultCopy> bleResultsCopy = [];
+    bleResults.where((bleResult) => bleResult.rssi >= threshold)
+      .forEach((bleResult) {
+      uniqueResults[bleResult.device.remoteId.toString()] = ScanResultCopy(deviceId: bleResult.device.remoteId.toString().toLowerCase(), rssi: bleResult.rssi); // Only keep the latest result for each BSSID
+    });
 
-    while (topAPs.length < 2 && results.isNotEmpty) {
-      WiFiAccessPoint currentAP = results.first;
-      results.remove(currentAP);
+    // Convert back to list
+    bleResultsCopy = uniqueResults.values.toList();
 
-      Database dbInstance = await DatabaseHelper.database;
-      GridLocation? APLocation = await getLocationFromDB(dbInstance, currentAP.bssid);
+    List<Object> results = [...wifiResults, ...bleResultsCopy];
+    topAnchors = await filter(results, topAnchors);
+    print("${topAnchors?.length} Beacons Found");
+    GridLocation? gridLocation = _estimatePosition(topAnchors);
+    return await DatabaseHelper.queryClosestLocationForFloor(1, gridLocation);
+  }
 
-      if (APLocation != null) {
-        topAPs[currentAP] = APLocation;
+  static Future<int?> checkFloorWifi(int threshold) async{
+    List<WiFiAccessPoint> wifiResults = await WiFiScan.instance.getScannedResults();
+    wifiResults = wifiResults.where((ap) => ap.ssid == "KAU-INTERNET" && ap.level >= threshold).toList();
+    return DatabaseHelper.getFloorIfChanged(wifiResults.first.bssid);
+  }
+
+  static Future<int?> checkFloorBLE(double threshold) async{
+    List<ScanResult> bleResults = await _scanBLE();
+    Map<String, ScanResultCopy> uniqueResults = {}; 
+    List<ScanResultCopy> bleResultsCopy = [];
+    bleResults.where((bleResult) => bleResult.rssi >= threshold)
+      .forEach((bleResult) {
+      uniqueResults[bleResult.device.remoteId.toString()] = ScanResultCopy(deviceId: bleResult.device.remoteId.toString().toLowerCase(), rssi: bleResult.rssi); // Only keep the latest result for each BSSID
+    });
+
+    // Convert back to list
+    bleResultsCopy = uniqueResults.values.toList();
+    if(bleResultsCopy.isEmpty){return -1;}
+    return DatabaseHelper.getFloorIfChanged(bleResultsCopy.first.deviceId);
+  }
+
+  static Future<Map<Object, GridLocation>?> filter(List<Object> results, Map<Object, GridLocation>? topAnchors) async {
+  if (results.isNotEmpty) {
+    results.sort((a, b) {
+      if (a is WiFiAccessPoint && b is WiFiAccessPoint) {
+        return b.level.compareTo(a.level); // WiFi uses `level`
+      } else if (a is ScanResultCopy && b is ScanResultCopy) {
+        return b.rssi.compareTo(a.rssi); // BLE uses `rssi`
+      } else if (a is WiFiAccessPoint && b is ScanResultCopy) {
+        return b.rssi.compareTo(a.level); // Compare WiFi `level` with BLE `rssi`
+      } else if (a is ScanResultCopy && b is WiFiAccessPoint) {
+        return b.level.compareTo(a.rssi);
       }
-    }
-    
-    if (topAPs.length == 2) {
-      // GridLocation? gridLocation = _estimatePosition(topAPs);
-      return _estimatePosition(topAPs);
-      // return DatabaseHelper.queryClosestLocationForFloor(1, gridLocation);
-    }
+      return 0; // Fallback
+    });
+  } else {
     return null;
   }
 
-  static Future<GridLocation?> _estimateUsingBLE(double threshold) async {
-    List<ScanResult> bleResults = await _scanBLE();
-    bleResults = bleResults.where((bleResults) => bleResults.rssi >= threshold).toList();
-    Map<ScanResult, GridLocation> topBeacons = {};
-    if (bleResults.isNotEmpty) {
-      bleResults.sort((a, b) => b.rssi.compareTo(a.rssi));
-    } else {
-      return null;
-    }
-   print("start $bleResults");
-    while (topBeacons.length < 2 && bleResults.isNotEmpty) {
-      ScanResult currentBeacon = bleResults.first;
-      bleResults.remove(currentBeacon);
+  // Filter top 2
+  while (topAnchors != null && topAnchors.length < 2 && results.isNotEmpty) {
+    Object currentAnchor = results.first;
+    results.removeAt(0); // Remove first element
 
-      Database dbInstance = await DatabaseHelper.database;
-      GridLocation? APLocation = await getLocationFromDB(dbInstance, currentBeacon.device.remoteId.toString().toLowerCase());
+    String? id;
+    if (currentAnchor is WiFiAccessPoint) {
+      id = currentAnchor.bssid; // WiFi BSSID
+    } else if (currentAnchor is ScanResultCopy) {
+      id = currentAnchor.deviceId; // BLE Unique ID
+    }
 
-      if (APLocation != null) {
-        topBeacons[currentBeacon] = APLocation;
-      }
+    if (id == null) continue; // Skip if no valid identifier
+
+    Database dbInstance = await DatabaseHelper.database;
+    GridLocation? location = await getLocationFromDB(dbInstance, id);
+    if(location?.x == null){continue;}
+      print(" Beacon: (${location?.x}, ${location?.y})");
+    if (location != null) {
+      topAnchors[currentAnchor] = location;
     }
-    print("end $topBeacons");
-    if (topBeacons.length == 2) {
-      return _estimatePositionBLE(topBeacons);
-    }
+    print("${topAnchors?.length} Beacons Found");
   }
+  return topAnchors;
+}
 
   static Future<GridLocation?> getLocationFromDB(Database db, String bssid) async {
     final ResultSet result = db.select(
@@ -88,7 +120,7 @@ class WiFiBLEPositioning {
     return null;
   }
 
-    static Future<List<ScanResult>> _scanBLE() async {
+static Future<List<ScanResult>> _scanBLE() async {
     List<ScanResult> results = [];
     Completer<List<ScanResult>> completer = Completer();
 
@@ -100,7 +132,7 @@ class WiFiBLEPositioning {
       results.addAll(scanResults);
     });
 
-    await Future.delayed(Duration(seconds: 5));
+    await Future.delayed(Duration(seconds: 2));
     FlutterBluePlus.stopScan();
     await subscription?.cancel();
     isScanning = false;
@@ -108,16 +140,14 @@ class WiFiBLEPositioning {
 
     return completer.future;
   }
-
-  static GridLocation? _estimatePosition(Map<WiFiAccessPoint, GridLocation> ref) {
+  static GridLocation? _estimatePosition(Map<Object, GridLocation>? ref) {
     double weightedX = 0, weightedY = 0, totalWeight = 0;
-    // int floor1 = ref.values.first.floor;
-    // int floor2 = ref.values.last.floor;
+    if(ref==null){return null;}
 
     ref.forEach((key, value) {
       double x = value.x;
       double y = value.y;
-      int rssi = key.level;
+      int rssi = (key is WiFiAccessPoint) ? key.level : (key as ScanResultCopy).rssi;
 
       double distance = estimateDistance(rssi);
       double weight = 1 / (distance + 1e-6);
@@ -125,43 +155,15 @@ class WiFiBLEPositioning {
       weightedX += x * weight;
       weightedY += y * weight;
       totalWeight += weight;
+      print(" Beacon: (${x}, ${y})");
     });
 
     if (totalWeight > 0) {
       double estimatedX = weightedX / totalWeight;
       double estimatedY = weightedY / totalWeight;
       GridLocation gridLocation = GridLocation(x: estimatedX, y: estimatedY);
-      // if(floor1 != floor2) {gridLocation.floor=-1;}
-      // else{gridLocation.floor=floor1;}
-      return gridLocation;
-    }
-    return null;
-  }
-
-  static GridLocation? _estimatePositionBLE(Map<ScanResult, GridLocation> ref) {
-    double weightedX = 0, weightedY = 0, totalWeight = 0;
-    // int floor1 = ref.values.first.floor;
-    // int floor2 = ref.values.last.floor;
-
-    ref.forEach((key, value) {
-      double x = value.x;
-      double y = value.y;
-      int rssi = key.rssi;
-
-      double distance = estimateDistance(rssi);
-      double weight = 1 / (distance + 1e-6);
-
-      weightedX += x * weight;
-      weightedY += y * weight;
-      totalWeight += weight;
-    });
-
-    if (totalWeight > 0) {
-      double estimatedX = weightedX / totalWeight;
-      double estimatedY = weightedY / totalWeight;
-      GridLocation gridLocation = GridLocation(x: estimatedX, y: estimatedY);
-      // if(floor1 != floor2) {gridLocation.floor=-1;}
-      // else{gridLocation.floor=floor1;}
+      
+      print(" Calculated: (${gridLocation.x}, ${gridLocation.y}; floor -> ${gridLocation.floor} )");
       return gridLocation;
     }
     return null;
@@ -171,5 +173,16 @@ class WiFiBLEPositioning {
     const double n = 2.0;
     const double txPower = -50;
     return math.pow(10, (txPower - rssi) / (10 * n)).toDouble();
+
   }
+}
+
+class ScanResultCopy {
+  final String deviceId;
+  final int rssi;
+
+  ScanResultCopy({
+    required this.deviceId,
+    required this.rssi,
+  });
 }

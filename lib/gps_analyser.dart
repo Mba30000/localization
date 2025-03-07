@@ -6,7 +6,6 @@ import 'dart:math' as math;
 import 'package:sqlite3/sqlite3.dart';
 
 class GPSAnalyser {
-  static int floorLevel = 1;
   static Future<Position?> getGPSLocation() async {
     if (!await Geolocator.isLocationServiceEnabled()) {
       return null;
@@ -24,7 +23,7 @@ class GPSAnalyser {
   }
 
 // Function to get nearest grid based on GPS coordinates
-static Future<GridLocation> mapGPS(double latitude, double longitude) async {
+static Future<GridLocation> mapGPS(double latitude, double longitude, int? floorLevel) async {
   double shortestDistance = 5000;
   Database? db = await DatabaseHelper.database;
   if (db == null) {

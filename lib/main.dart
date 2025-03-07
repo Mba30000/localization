@@ -31,6 +31,7 @@ class _MyAppState extends State<MyApp> {
   TextEditingController gpsController = TextEditingController();
   ImuReader imuReader = ImuReader();
   Map<String, dynamic>? imuData;
+  int? floor = -1;
 
 @override
   void initState() {
@@ -80,18 +81,23 @@ Future<String> _getCurrentLocation() async {
   Position? position = await GPSAnalyser.getGPSLocation();
 
   // Define thresholds
-  double gpsThreshold = (gpsController.text.isEmpty) ? 15.0 : double.tryParse(gpsController.text) ?? 15.0;
+  double gpsThreshold = (gpsController.text.isEmpty) ? 15.0 : double.tryParse(gpsController.text) ?? 18.0;
   double wifiThreshold = (wifiController.text.isEmpty) ? -80 : double.tryParse(wifiController.text) ?? -80;
 
+  int? newFloor = await WiFiBLEPositioning.checkFloorBLE(wifiThreshold);
+  if(newFloor != -1){
+    floor = newFloor;
+  }
   // If GPS accuracy is good enough, use GPS location
   if (position != null && position.accuracy < gpsThreshold) {
-    GridLocation gridLocation = await GPSAnalyser.mapGPS(position.latitude, position.longitude);
+    GridLocation gridLocation = await GPSAnalyser.mapGPS(position.latitude, position.longitude, floor);
     // gridLocation.floor = 1 + delta;
     return "$gridLocation found using GPS";
   }
 
   // Otherwise, attempt WiFi-based location
   GridLocation? gridLocation = await WiFiBLEPositioning.estimatePosition(wifiThreshold);
+  gridLocation?.floor = (floor)!;
   if(gridLocation != null){
     // gridLocation.floor = 1 + delta;
     }
