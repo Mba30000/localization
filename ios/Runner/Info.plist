@@ -58,19 +58,25 @@
   <key>NSBluetoothPeripheralUsageDescription</key>
   <string>We need Bluetooth access to communicate with devices.</string>
 
-  <array>
-    <string>bluetooth-central</string>
-    <string>bluetooth-peripheral</string> <!-- Added for Peripheral use -->
-  </array>
-
-  <!-- Enable Background Location Updates -->
+  <!-- Background Modes -->
   <key>UIBackgroundModes</key>
   <array>
+    <string>bluetooth-central</string>
+    <string>bluetooth-peripheral</string>
     <string>location</string>
   </array>
 
   <!-- Motion Permissions -->
   <key>NSMotionUsageDescription</key>
   <string>We use motion data to detect altitude changes.</string>
+
+  <!-- Microphone Permissions -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>We need microphone access for voice commands.</string>
+
+  <!-- Camera Permissions -->
+  <key>NSCameraUsageDescription</key>
+  <string>Camera access is required for scanning QR codes.</string>
+
 </dict>
 </plist>
