@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:wifi_scan/wifi_scan.dart';
 import 'dart:math' as math;
@@ -121,25 +122,47 @@ class WiFiBLEPositioning {
   }
 
 static Future<List<ScanResult>> _scanBLE() async {
-    List<ScanResult> results = [];
-    Completer<List<ScanResult>> completer = Completer();
+  List<ScanResult> results = [];
+  Completer<List<ScanResult>> completer = Completer();
 
-    if (isScanning) return results; // Prevent scanning if already in progress
+  if (isScanning) return results; // Prevent scanning if already in progress
 
-    isScanning = true;
-    FlutterBluePlus.startScan();
-    StreamSubscription? subscription = FlutterBluePlus.scanResults.listen((List<ScanResult> scanResults) {
-      results.addAll(scanResults);
-    });
+  isScanning = true;
+  FlutterBluePlus.startScan();
 
-    await Future.delayed(Duration(seconds: 2));
-    FlutterBluePlus.stopScan();
-    await subscription?.cancel();
-    isScanning = false;
-    completer.complete(results);
+  StreamSubscription? subscription = FlutterBluePlus.scanResults.listen((List<ScanResult> scanResults) {
+    for (var scanResult in scanResults) {
+      final device = scanResult.device;
+      final String deviceIdentifier = device.id.id; // Get device identifier (for iOS and Android)
+      final String deviceName = device.name ?? "Unknown";
 
-    return completer.future;
-  }
+      // List of valid MAC addresses
+      List<String> validMacAddresses = [
+        "ac:23:3f:8f:1f:04",
+        "c3:00:00:35:25:e7",
+        "c3:00:00:35:25:ea",
+        "c3:00:00:35:25:e9",
+        "c3:00:00:35:26:0b",
+        "c3:00:00:35:25:eb",
+      ];
+
+      // Android-specific MAC address filtering
+      if (validMacAddresses.contains(deviceIdentifier.toLowerCase()) || deviceName.startsWith("Target Device")) {
+        results.add(scanResult);
+      }
+    }
+  });
+
+  await Future.delayed(Duration(seconds: 2));
+  FlutterBluePlus.stopScan();
+  await subscription?.cancel();
+  isScanning = false;
+  completer.complete(results);
+
+  return completer.future;
+}
+
+  
   static GridLocation? _estimatePosition(Map<Object, GridLocation>? ref) {
     double weightedX = 0, weightedY = 0, totalWeight = 0;
     if(ref==null){return null;}
