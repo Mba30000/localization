@@ -144,7 +144,10 @@ static Future<List<ScanResult>> _scanBLE() async {
         "c3:00:00:35:25:e9",
         "c3:00:00:35:26:0b",
         "c3:00:00:35:25:eb",
-      ];
+      ].map((mac) => mac.toUpperCase()).toList();
+
+      print(validMacAddresses);
+
 
       // Android-specific MAC address filtering
       if (validMacAddresses.contains(deviceIdentifier.toLowerCase()) || deviceName.startsWith("Target Device")) {
