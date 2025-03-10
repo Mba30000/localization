@@ -130,9 +130,9 @@ static Future<List<ScanResult>> _scanBLE() async {
 
   isScanning = true;
 
-  // List of iBeacon UUIDs (Replace with actual UUIDs from your beacons)
+  // List of iBeacon UUIDs (Ensure this is correct for your beacons)
   List<Guid> serviceUuids = [
-    Guid("E2C56DB5-DFFB-48D2-B060-D0F5A71096E0"), // Example iBeacon UUID
+    Guid("E2C56DB5-DFFB-48D2-B060-D0F5A71096E0"), // Example iBeacon UUID (Guid format)
   ];
 
   // Start scanning with UUID filtering on iOS
@@ -142,22 +142,29 @@ static Future<List<ScanResult>> _scanBLE() async {
 
   StreamSubscription? subscription = FlutterBluePlus.scanResults.listen((List<ScanResult> scanResults) {
     for (var scanResult in scanResults) {
-      // iOS: Check if the scanned beacon has a matching UUID
-      if (Platform.isIOS &&
-          scanResult.advertisementData.serviceUuids.any((uuid) => serviceUuids.contains(uuid))) {
-        // Only add iBeacon results with matching UUIDs
-        results.add(scanResult);
-        print(scanResult.toString());
-      } 
+      // Log advertisement data to debug the issue
+      print("Advertisement Data: ${scanResult.advertisementData}");
+
+      // Check if the service UUID in the advertisement data matches any in the list (for iOS)
+      if (Platform.isIOS) {
+        final serviceUuidsInAd = scanResult.advertisementData.serviceUuids;
+        print("Service UUIDs in advertisement: $serviceUuidsInAd");
+
+        for (var uuid in serviceUuidsInAd) {
+          if (serviceUuids.contains(uuid)) {  // Compare with Guid type
+            results.add(scanResult);
+            print("Beacon found with UUID: $uuid");
+          }
+        }
+      }
       // Android: Accept all BLE beacons (no UUID filtering, but you can add filters for iBeacons)
       else if (Platform.isAndroid) {
         results.add(scanResult);
-        print(scanResult.toString());
       }
     }
   });
 
-  await Future.delayed(Duration(seconds: 2)); // Allow some time for scanning
+  await Future.delayed(Duration(seconds: 10)); // Increase scan duration
   FlutterBluePlus.stopScan();
   await subscription?.cancel();
   isScanning = false;
