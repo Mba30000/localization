@@ -128,29 +128,28 @@ static Future<List<ScanResult>> _scanBLE() async {
   if (isScanning) return results; // Prevent scanning if already in progress
 
   isScanning = true;
-  FlutterBluePlus.startScan();
+
+  // List of iBeacon UUIDs (Replace with actual UUIDs from your beacons)
+  List<Guid> serviceUuids = [
+    Guid("E2C56DB5-DFFB-48D2-B060-D0F5A71096E0"),
+  ];
+
+  // Start scanning with UUID filtering on iOS
+ // Start scanning with UUID filtering on iOS
+FlutterBluePlus.startScan(
+  withServices: Platform.isIOS ? serviceUuids : [], // Ensure type consistency
+);
 
   StreamSubscription? subscription = FlutterBluePlus.scanResults.listen((List<ScanResult> scanResults) {
     for (var scanResult in scanResults) {
-      final device = scanResult.device;
-      final String deviceIdentifier = device.id.id; // Get device identifier (for iOS and Android)
-      final String deviceName = device.name ?? "Unknown";
 
-      // List of valid MAC addresses
-      List<String> validMacAddresses = [
-        "ac:23:3f:8f:1f:04",
-        "c3:00:00:35:25:e7",
-        "c3:00:00:35:25:ea",
-        "c3:00:00:35:25:e9",
-        "c3:00:00:35:26:0b",
-        "c3:00:00:35:25:eb",
-      ].map((mac) => mac.toUpperCase()).toList();
+      // iOS: Check if the scanned beacon has a matching UUID
+      if (Platform.isIOS && scanResult.advertisementData.serviceUuids.any((uuid) => serviceUuids.map((g) => g.toString()).contains(uuid))) {
+        results.add(scanResult);
+      }
 
-      print(validMacAddresses);
-
-
-      // Android-specific MAC address filtering
-      if (validMacAddresses.contains(deviceIdentifier.toLowerCase()) || deviceName.startsWith("Target Device")) {
+      // Android: Accept all BLE beacons (no MAC filtering)
+      else if (Platform.isAndroid) {
         results.add(scanResult);
       }
     }
@@ -164,8 +163,7 @@ static Future<List<ScanResult>> _scanBLE() async {
 
   return completer.future;
 }
-
-  
+ 
   static GridLocation? _estimatePosition(Map<Object, GridLocation>? ref) {
     double weightedX = 0, weightedY = 0, totalWeight = 0;
     if(ref==null){return null;}
