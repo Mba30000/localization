@@ -121,57 +121,57 @@ class WiFiBLEPositioning {
     return null;
   }
 
-static Future<List<ScanResult>> _scanBLE() async {
-  print("hello");
-  List<ScanResult> results = [];
-  Completer<List<ScanResult>> completer = Completer();
+  static Future<List<ScanResult>> _scanBLE() async {
+    print("hi");
+    List<ScanResult> results = [];
+    Completer<List<ScanResult>> completer = Completer();
 
-  if (isScanning) return results; // Prevent scanning if already in progress
+    if (isScanning) return results; // Prevent scanning if already in progress
 
-  isScanning = true;
+    isScanning = true;
 
-  // List of iBeacon UUIDs (Ensure this is correct for your beacons)
-  List<Guid> serviceUuids = [
-    Guid("E2C56DB5DFFB48D2B060D0F5A71096E0"), // Example iBeacon UUID (Guid format)
-  ];
+    // List of iBeacon UUIDs (Ensure this is correct for your beacons)
+    List<Guid> serviceUuids = [
+      Guid("E2C56DB5-DFFB-48D2-B060-D0F5A71096E0"), // Example iBeacon UUID (Guid format)
+    ];
 
-  // Start scanning with UUID filtering on iOS
-  FlutterBluePlus.startScan(
-    withServices: Platform.isIOS ? serviceUuids : [], // Only filter for iBeacon UUIDs on iOS
-  );
+    // Start scanning with UUID filtering on iOS
+    FlutterBluePlus.startScan(
+      withServices: Platform.isIOS ? serviceUuids : [], // Only filter for iBeacon UUIDs on iOS
+    );
 
-  StreamSubscription? subscription = FlutterBluePlus.scanResults.listen((List<ScanResult> scanResults) {
-    for (var scanResult in scanResults) {
-      // Log advertisement data to debug the issue
-      print("Advertisement Data: ${scanResult.advertisementData}");
+    StreamSubscription? subscription = FlutterBluePlus.scanResults.listen((List<ScanResult> scanResults) {
+      for (var scanResult in scanResults) {
+        // Log advertisement data to debug the issue
+        print("Advertisement Data: ${scanResult.advertisementData}");
 
-      // Check if the service UUID in the advertisement data matches any in the list (for iOS)
-      if (Platform.isIOS) {
-        final serviceUuidsInAd = scanResult.advertisementData.serviceUuids;
-        print("Service UUIDs in advertisement: $serviceUuidsInAd");
+        // iOS: Check if the scanned beacon has a matching UUID
+        if (Platform.isIOS) {
+          final serviceUuidsInAd = scanResult.advertisementData.serviceUuids;
+          print("Service UUIDs in advertisement: $serviceUuidsInAd");
 
-        for (var uuid in serviceUuidsInAd) {
-          if (serviceUuids.contains(uuid)) {  // Compare with Guid type
-            results.add(scanResult);
-            print("Beacon found with UUID: $uuid");
+          for (var uuid in serviceUuidsInAd) {
+            if (serviceUuids.contains(uuid)) {  // Compare with Guid type
+              results.add(scanResult);
+              print("Beacon found with UUID: $uuid");
+            }
           }
         }
+        // Android: Accept all BLE beacons (no UUID filtering, but you can add filters for iBeacons)
+        else if (Platform.isAndroid) {
+          results.add(scanResult);
+        }
       }
-      // Android: Accept all BLE beacons (no UUID filtering, but you can add filters for iBeacons)
-      else if (Platform.isAndroid) {
-        results.add(scanResult);
-      }
-    }
-  });
+    });
 
-  await Future.delayed(Duration(seconds: 10)); // Increase scan duration
-  FlutterBluePlus.stopScan();
-  await subscription?.cancel();
-  isScanning = false;
-  completer.complete(results);
+    await Future.delayed(Duration(seconds: 10)); // Increase scan duration
+    FlutterBluePlus.stopScan();
+    await subscription?.cancel();
+    isScanning = false;
+    completer.complete(results);
 
-  return completer.future;
-}
+    return completer.future;
+  }
 
   static GridLocation? _estimatePosition(Map<Object, GridLocation>? ref) {
     double weightedX = 0, weightedY = 0, totalWeight = 0;
