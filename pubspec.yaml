@@ -50,6 +50,7 @@ dependencies:
   geolocator_apple: ^2.3.9
   path_provider_foundation: ^2.4.1
   flutter_blue_plus: ^1.35.3
+  permission_handler: ^11.4.0
 
 dev_dependencies:
   flutter_test:

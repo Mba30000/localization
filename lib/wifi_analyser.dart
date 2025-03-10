@@ -9,7 +9,7 @@ import 'package:sqlite3/sqlite3.dart';
 import 'dart:io';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'dart:async';
-
+import 'package:permission_handler/permission_handler.dart';
 
 class WiFiBLEPositioning {
   static bool isScanning = false; // Flag to manage scan state
@@ -123,6 +123,8 @@ class WiFiBLEPositioning {
 
   static Future<List<ScanResult>> _scanBLE() async {
     print("hi");
+      await Permission.bluetooth.request();
+  await Permission.location.request();
     List<ScanResult> results = [];
     Completer<List<ScanResult>> completer = Completer();
 
