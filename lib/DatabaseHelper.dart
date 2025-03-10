@@ -6,7 +6,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'dart:typed_data';
 import 'dart:math';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 class DatabaseHelper {
   static Database? _db;
 

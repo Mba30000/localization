@@ -1,4 +1,5 @@
 
+
 import 'package:flutter/material.dart';
 import 'package:wifi_scan/wifi_scan.dart';
 import 'dart:math' as math;
@@ -131,31 +132,32 @@ static Future<List<ScanResult>> _scanBLE() async {
 
   // List of iBeacon UUIDs (Replace with actual UUIDs from your beacons)
   List<Guid> serviceUuids = [
-    Guid("E2C56DB5-DFFB-48D2-B060-D0F5A71096E0"),
+    Guid("E2C56DB5-DFFB-48D2-B060-D0F5A71096E0"), // Example iBeacon UUID
   ];
 
   // Start scanning with UUID filtering on iOS
- // Start scanning with UUID filtering on iOS
-FlutterBluePlus.startScan(
-  withServices: Platform.isIOS ? serviceUuids : [], // Ensure type consistency
-);
+  FlutterBluePlus.startScan(
+    withServices: Platform.isIOS ? serviceUuids : [], // Only filter for iBeacon UUIDs on iOS
+  );
 
   StreamSubscription? subscription = FlutterBluePlus.scanResults.listen((List<ScanResult> scanResults) {
     for (var scanResult in scanResults) {
-
       // iOS: Check if the scanned beacon has a matching UUID
-      if (Platform.isIOS && scanResult.advertisementData.serviceUuids.any((uuid) => serviceUuids.map((g) => g.toString()).contains(uuid))) {
+      if (Platform.isIOS &&
+          scanResult.advertisementData.serviceUuids.any((uuid) => serviceUuids.contains(uuid))) {
+        // Only add iBeacon results with matching UUIDs
         results.add(scanResult);
-      }
-
-      // Android: Accept all BLE beacons (no MAC filtering)
+        print(scanResult.toString());
+      } 
+      // Android: Accept all BLE beacons (no UUID filtering, but you can add filters for iBeacons)
       else if (Platform.isAndroid) {
         results.add(scanResult);
+        print(scanResult.toString());
       }
     }
   });
 
-  await Future.delayed(Duration(seconds: 2));
+  await Future.delayed(Duration(seconds: 2)); // Allow some time for scanning
   FlutterBluePlus.stopScan();
   await subscription?.cancel();
   isScanning = false;
@@ -163,7 +165,7 @@ FlutterBluePlus.startScan(
 
   return completer.future;
 }
- 
+
   static GridLocation? _estimatePosition(Map<Object, GridLocation>? ref) {
     double weightedX = 0, weightedY = 0, totalWeight = 0;
     if(ref==null){return null;}
