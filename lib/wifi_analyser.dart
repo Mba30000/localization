@@ -123,6 +123,7 @@ class WiFiBLEPositioning {
   }
 
 static Future<List<ScanResult>> _scanBLE() async {
+  print("hello");
   List<ScanResult> results = [];
   Completer<List<ScanResult>> completer = Completer();
 
@@ -132,7 +133,7 @@ static Future<List<ScanResult>> _scanBLE() async {
 
   // List of iBeacon UUIDs (Ensure this is correct for your beacons)
   List<Guid> serviceUuids = [
-    Guid("E2C56DB5-DFFB-48D2-B060-D0F5A71096E0"), // Example iBeacon UUID (Guid format)
+    Guid("E2C56DB5DFFB48D2B060D0F5A71096E0"), // Example iBeacon UUID (Guid format)
   ];
 
   // Start scanning with UUID filtering on iOS
