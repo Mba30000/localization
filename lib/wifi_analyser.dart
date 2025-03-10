@@ -34,7 +34,6 @@ class WiFiBLEPositioning {
 
     List<Object> results = [...wifiResults, ...bleResultsCopy];
     topAnchors = await filter(results, topAnchors);
-    print("${topAnchors?.length} Beacons Found");
     GridLocation? gridLocation = _estimatePosition(topAnchors);
     return await DatabaseHelper.queryClosestLocationForFloor(1, gridLocation);
   }
